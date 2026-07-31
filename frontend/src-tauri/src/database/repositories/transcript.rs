@@ -7,6 +7,32 @@ use uuid::Uuid;
 pub struct TranscriptsRepository;
 
 impl TranscriptsRepository {
+    /// Rename a diarized speaker across one meeting's segments. Returns the
+    /// number of segments updated plus the meeting's recording folder path.
+    pub async fn rename_speaker(
+        pool: &SqlitePool,
+        meeting_id: &str,
+        old_speaker: &str,
+        new_speaker: &str,
+    ) -> Result<(u64, Option<String>), SqlxError> {
+        let updated =
+            sqlx::query("UPDATE transcripts SET speaker = ? WHERE meeting_id = ? AND speaker = ?")
+                .bind(new_speaker)
+                .bind(meeting_id)
+                .bind(old_speaker)
+                .execute(pool)
+                .await?
+                .rows_affected();
+        let folder = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT folder_path FROM meetings WHERE id = ?",
+        )
+        .bind(meeting_id)
+        .fetch_optional(pool)
+        .await?
+        .flatten();
+        Ok((updated, folder))
+    }
+
     /// Saves a new meeting and its associated transcript segments.
     /// This function uses a transaction to ensure that either both the meeting
     /// and all its transcripts are saved, or none of them are.

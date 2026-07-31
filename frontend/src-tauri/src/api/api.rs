@@ -780,6 +780,58 @@ pub async fn api_delete_meeting<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn api_rename_speaker<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    old_speaker: String,
+    new_speaker: String,
+) -> Result<serde_json::Value, String> {
+    let old_speaker = old_speaker.trim().to_string();
+    let new_speaker = new_speaker.trim().to_string();
+    if old_speaker.is_empty() || new_speaker.is_empty() || new_speaker.contains('=') {
+        return Err("Speaker names must be non-empty and must not contain '='".to_string());
+    }
+    log_info!(
+        "api_rename_speaker: {:?} -> {:?} in {}",
+        old_speaker,
+        new_speaker,
+        meeting_id
+    );
+
+    let pool = state.db_manager.pool();
+    let (updated, folder) =
+        TranscriptsRepository::rename_speaker(pool, &meeting_id, &old_speaker, &new_speaker)
+            .await
+            .map_err(|e| format!("Failed to rename speaker: {}", e))?;
+
+    // Queue voice-profile enrollment for the external diarization sweep: it
+    // picks up speakers.txt from the recording folder, enrolls the voice for
+    // future auto-naming, and relabels the markdown transcript.
+    let mut enrollment_queued = false;
+    if let Some(folder) = folder.filter(|f| !f.is_empty()) {
+        let path = std::path::Path::new(&folder).join("speakers.txt");
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(mut f) => {
+                use std::io::Write;
+                enrollment_queued = writeln!(f, "{}={}", new_speaker, old_speaker).is_ok();
+            }
+            Err(e) => log_warn!("could not write speakers.txt in {}: {}", folder, e),
+        }
+    }
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "updated_segments": updated,
+        "enrollment_queued": enrollment_queued,
+    }))
+}
+
+#[tauri::command]
 pub async fn api_get_meeting<R: Runtime>(
     _app: AppHandle<R>,
     meeting_id: String,

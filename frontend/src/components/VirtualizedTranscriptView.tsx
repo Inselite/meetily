@@ -9,10 +9,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { RecordingStatusBar } from "./RecordingStatusBar";
 import { motion, AnimatePresence } from "framer-motion";
 import { TranscriptSegmentData } from "@/types";
+import { invoke } from '@tauri-apps/api/core';
 
 export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
     segments: TranscriptSegmentData[];
+    /** Meeting ID used for speaker renaming */
+    meetingId?: string;
     /** Whether recording is in progress */
     isRecording?: boolean;
     /** Whether recording is paused */
@@ -70,6 +73,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     text,
     confidence,
     speaker,
+    onRenameSpeaker,
     isStreaming,
     showConfidence,
 }: {
@@ -78,13 +82,43 @@ const TranscriptSegment = memo(function TranscriptSegment({
     text: string;
     confidence?: number;
     speaker?: string;
+    onRenameSpeaker?: (oldName: string, newName: string) => void;
     isStreaming: boolean;
     showConfidence: boolean;
 }) {
+    const [isRenamingSpeaker, setIsRenamingSpeaker] = useState(false);
     const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
-    const speakerLabel = speaker && (
-        <span className="font-semibold text-blue-700 mr-1.5">{speaker}:</span>
-    );
+    const speakerLabel = speaker && (isRenamingSpeaker ? (
+        <>
+            <input
+                className="font-semibold text-blue-700 mr-1.5 border-b border-gray-300 bg-transparent outline-none w-32"
+                autoFocus
+                defaultValue={speaker}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                        const value = event.currentTarget.value.trim();
+                        if (value && value !== speaker) {
+                            onRenameSpeaker?.(speaker, value);
+                        }
+                        setIsRenamingSpeaker(false);
+                    } else if (event.key === 'Escape') {
+                        setIsRenamingSpeaker(false);
+                    }
+                }}
+                onBlur={() => setIsRenamingSpeaker(false)}
+            />
+            <span>:</span>
+        </>
+    ) : (
+        <span
+            className={`font-semibold text-blue-700 mr-1.5${onRenameSpeaker ? ' cursor-pointer hover:underline' : ''}`}
+            title={onRenameSpeaker ? "Click to rename this speaker" : undefined}
+            onClick={onRenameSpeaker ? () => setIsRenamingSpeaker(true) : undefined}
+        >
+            {speaker}:
+        </span>
+    ));
 
     return (
         <div id={`segment-${id}`} className="mb-3">
@@ -117,6 +151,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
 
 export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps> = ({
     segments,
+    meetingId,
     isRecording = false,
     isPaused = false,
     isProcessing = false,
@@ -130,6 +165,27 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     loadedCount = 0,
     onLoadMore,
 }) => {
+    const [speakerRenames, setSpeakerRenames] = useState<Record<string, string>>({});
+    const renameSpeaker = useCallback((oldName: string, newName: string) => {
+        if (!meetingId) return;
+
+        invoke('api_rename_speaker', {
+            meetingId,
+            oldSpeaker: oldName,
+            newSpeaker: newName,
+        }).then(() => {
+            setSpeakerRenames((renames) => {
+                const updatedRenames = Object.fromEntries(
+                    Object.entries(renames).map(([key, value]) => [key, value === oldName ? newName : value])
+                );
+                updatedRenames[oldName] = newName;
+                return updatedRenames;
+            });
+        }).catch((error) => {
+            console.error('Failed to rename speaker:', error);
+        });
+    }, [meetingId]);
+
     // Create scroll ref first - shared between virtualizer and auto-scroll hook
     const scrollRef = useRef<HTMLDivElement>(null);
     // Ref for infinite scroll trigger element
@@ -299,7 +355,8 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         timestamp={segment.timestamp}
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
-                                        speaker={segment.speaker}
+                                        speaker={segment.speaker ? (speakerRenames[segment.speaker] ?? segment.speaker) : segment.speaker}
+                                        onRenameSpeaker={meetingId ? renameSpeaker : undefined}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />
@@ -356,7 +413,8 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         timestamp={segment.timestamp}
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
-                                        speaker={segment.speaker}
+                                        speaker={segment.speaker ? (speakerRenames[segment.speaker] ?? segment.speaker) : segment.speaker}
+                                        onRenameSpeaker={meetingId ? renameSpeaker : undefined}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />

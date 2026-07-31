@@ -26,7 +26,9 @@ import { Input } from '../ui/input';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
@@ -37,6 +39,7 @@ import { useRouter } from 'next/navigation';
 import { useSidebar } from '../Sidebar/SidebarProvider';
 import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
+import { useRecentTranscriptionLanguages } from '@/hooks/useRecentTranscriptionLanguages';
 
 
 interface ImportAudioDialogProps {
@@ -76,6 +79,16 @@ export function ImportAudioDialog({
 
   const [title, setTitle] = useState('');
   const [selectedLang, setSelectedLang] = useState(selectedLanguage || 'auto');
+  const { recents, addRecent } = useRecentTranscriptionLanguages();
+  const recentLanguages = recents
+    .map(code => LANGUAGES.find(language => language.code === code))
+    .filter((language): language is (typeof LANGUAGES)[number] => Boolean(language));
+  const recentCodes = new Set(recentLanguages.map(language => language.code));
+
+  const handleLanguageChange = (languageCode: string) => {
+    setSelectedLang(languageCode);
+    addRecent(languageCode);
+  };
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [titleModifiedByUser, setTitleModifiedByUser] = useState(false);
 
@@ -349,16 +362,25 @@ export function ImportAudioDialog({
                             <Globe className="h-4 w-4 text-muted-foreground" />
                             <span className="text-sm font-medium">Language</span>
                           </div>
-                          <Select value={selectedLang} onValueChange={setSelectedLang}>
+                          <Select value={selectedLang} onValueChange={handleLanguageChange}>
                             <SelectTrigger className="w-full">
                               <SelectValue placeholder="Select language" />
                             </SelectTrigger>
                             <SelectContent className="max-h-60">
-                              {LANGUAGES.map((lang) => (
-                                <SelectItem key={lang.code} value={lang.code}>
-                                  {lang.name}
-                                </SelectItem>
-                              ))}
+                              {recentLanguages.length > 0 && (
+                                <SelectGroup>
+                                  <SelectLabel>Recently used</SelectLabel>
+                                  {recentLanguages.map(lang => (
+                                    <SelectItem key={lang.code} value={lang.code}>{lang.name}</SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              )}
+                              <SelectGroup>
+                                <SelectLabel>All languages</SelectLabel>
+                                {LANGUAGES.filter(lang => !recentCodes.has(lang.code)).map(lang => (
+                                  <SelectItem key={lang.code} value={lang.code}>{lang.name}</SelectItem>
+                                ))}
+                              </SelectGroup>
                             </SelectContent>
                           </Select>
                         </div>

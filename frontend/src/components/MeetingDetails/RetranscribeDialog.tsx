@@ -12,7 +12,9 @@ import { Button } from '../ui/button';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
@@ -23,6 +25,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
 import Analytics from '@/lib/analytics';
+import { useRecentTranscriptionLanguages } from '@/hooks/useRecentTranscriptionLanguages';
 
 interface RetranscribeDialogProps {
   open: boolean;
@@ -63,6 +66,16 @@ export function RetranscribeDialog({
   const [progress, setProgress] = useState<RetranscriptionProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedLang, setSelectedLang] = useState(selectedLanguage || 'auto');
+  const { recents, addRecent } = useRecentTranscriptionLanguages();
+  const recentLanguages = recents
+    .map(code => LANGUAGES.find(language => language.code === code))
+    .filter((language): language is (typeof LANGUAGES)[number] => Boolean(language));
+  const recentCodes = new Set(recentLanguages.map(language => language.code));
+
+  const handleLanguageChange = (languageCode: string) => {
+    setSelectedLang(languageCode);
+    addRecent(languageCode);
+  };
 
   // Use centralized model fetching hook
   const {
@@ -307,16 +320,25 @@ export function RetranscribeDialog({
                   <Globe className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm font-medium">Language</span>
                 </div>
-                <Select value={selectedLang} onValueChange={setSelectedLang}>
+                <Select value={selectedLang} onValueChange={handleLanguageChange}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select language" />
                   </SelectTrigger>
                   <SelectContent className="max-h-60">
-                    {LANGUAGES.map((lang) => (
-                      <SelectItem key={lang.code} value={lang.code}>
-                        {lang.name}
-                      </SelectItem>
-                    ))}
+                    {recentLanguages.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Recently used</SelectLabel>
+                        {recentLanguages.map(lang => (
+                          <SelectItem key={lang.code} value={lang.code}>{lang.name}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    <SelectGroup>
+                      <SelectLabel>All languages</SelectLabel>
+                      {LANGUAGES.filter(lang => !recentCodes.has(lang.code)).map(lang => (
+                        <SelectItem key={lang.code} value={lang.code}>{lang.name}</SelectItem>
+                      ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">

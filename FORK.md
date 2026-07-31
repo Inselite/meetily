@@ -1,10 +1,12 @@
 # Fork: speaker-display
 
 This fork of [Zackriya-Solutions/meeting-minutes](https://github.com/Zackriya-Solutions/meeting-minutes)
-carries two patches: **display diarized speaker labels** from the
+carries three patches: **display diarized speaker labels** from the
 `transcripts.speaker` column, which upstream's own migration
 (`20251110000001_add_speaker_field.sql`) creates but which stock CE never
-reads, and **rename speakers in-app** by clicking a label. The column is
+reads, **rename speakers in-app** by clicking a label, and **recently used
+languages** pinned at the top of the transcription-language pickers. The
+column is
 populated externally by
 [meetily-diarize](https://github.com/Inselite/meetily-diarize) — this fork
 adds no diarization of its own.
@@ -36,6 +38,14 @@ press Enter (Escape cancels):
 - The renamed label shows immediately in the view (a local rename map;
   chained renames are resolved). Clipboard copy uses the new name after the
   next visit to the meeting, once the data is refetched.
+
+## Patch 3: recently used languages on top
+
+All three transcription-language pickers (Settings, Retranscribe dialog,
+Import Audio dialog) show a **"Recently used"** group at the top of the
+~100-entry list — the last five manually selected languages, most recent
+first. Stored in localStorage (`transcription_language_recents`), synced
+across open pickers, and the two Auto Detect entries stay pinned above it.
 
 ## Build (Apple Silicon)
 

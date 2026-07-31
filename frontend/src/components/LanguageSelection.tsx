@@ -3,6 +3,7 @@ import { Globe } from 'lucide-react';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useRecentTranscriptionLanguages } from '@/hooks/useRecentTranscriptionLanguages';
 
 export interface Language {
   code: string;
@@ -129,12 +130,16 @@ export function LanguageSelection({
 }: LanguageSelectionProps) {
   const [saving, setSaving] = useState(false);
   const { setSelectedLanguage } = useConfig();
+  const { recents, addRecent } = useRecentTranscriptionLanguages();
 
   // Parakeet only supports auto-detection (doesn't support manual language selection)
   const isParakeet = provider === 'parakeet';
   const availableLanguages = isParakeet
     ? LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === 'auto-translate')
     : LANGUAGES;
+  const recentLanguages = recents
+    .map(code => availableLanguages.find(language => language.code === code))
+    .filter((language): language is Language => Boolean(language));
 
   const handleLanguageChange = async (languageCode: string) => {
     setSaving(true);
@@ -152,6 +157,7 @@ export function LanguageSelection({
         is_auto_detect: (languageCode === 'auto').toString(),
         is_auto_translate: (languageCode === 'auto-translate').toString()
       });
+      addRecent(languageCode);
 
       // Show success toast
       const languageName = selectedLang?.name || languageCode;
@@ -189,12 +195,31 @@ export function LanguageSelection({
           disabled={disabled || saving}
           className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
         >
-          {availableLanguages.map((language) => (
-            <option key={language.code} value={language.code}>
-              {language.name}
-              {language.code !== 'auto' && language.code !== 'auto-translate' && ` (${language.code})`}
-            </option>
-          ))}
+          {availableLanguages
+            .filter(language => language.code === 'auto' || language.code === 'auto-translate')
+            .map(language => (
+              <option key={language.code} value={language.code}>{language.name}</option>
+            ))}
+          {!isParakeet && recentLanguages.length > 0 && (
+            <optgroup label="Recently used">
+              {recentLanguages.map(language => (
+                <option key={language.code} value={language.code}>
+                  {language.name} ({language.code})
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {!isParakeet && (
+            <optgroup label="All languages">
+              {availableLanguages
+                .filter(language => language.code !== 'auto' && language.code !== 'auto-translate')
+                .map(language => (
+                  <option key={language.code} value={language.code}>
+                    {language.name} ({language.code})
+                  </option>
+                ))}
+            </optgroup>
+          )}
         </select>
 
         {/* Parakeet language limitation warning */}

@@ -51,7 +51,14 @@ export function useRecentTranscriptionLanguages() {
   const [recents, setRecents] = useState<string[]>(() => readFromStorage());
 
   useEffect(() => {
-    lastCommittedValues = readFromStorage();
+    // Only adopt storage as the source of truth when it is actually readable;
+    // otherwise keep the in-memory fallback that exists for that case.
+    const persisted = readStorageResult();
+    if (persisted.accessible) {
+      lastCommittedValues = persisted.values;
+    } else {
+      setRecents(lastCommittedValues);
+    }
     const onStorage = (event: StorageEvent) => {
       if (event.key === MRU_KEY) {
         const values = readFromStorage();

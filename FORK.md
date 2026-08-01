@@ -47,6 +47,15 @@ Import Audio dialog) show a **"Recently used"** group at the top of the
 first. Stored in localStorage (`transcription_language_recents`), synced
 across open pickers, and the two Auto Detect entries stay pinned above it.
 
+## Merged: dark mode (upstream PR #575)
+
+The branch also carries upstream PR
+[Zackriya-Solutions/meetily#575](https://github.com/Zackriya-Solutions/meetily/pull/575)
+(tri-state **System / Light / Dark** appearance preference, applied before
+hydration, native window chrome synced). Merged 2026-08-01 with one trivial
+conflict (our speaker-label prefix on the PR's semantic classes). If upstream
+merges the PR, the next rebase will absorb it automatically.
+
 ## Build (Apple Silicon)
 
 ```sh

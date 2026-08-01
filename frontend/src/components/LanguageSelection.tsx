@@ -116,6 +116,11 @@ export const SETTINGS_TRANSCRIPTION_LANGUAGES: Language[] = [
   { code: 'su', name: 'Sundanese' },
 ];
 
+// Parakeet only supports auto-detection; module scope keeps the reference stable across renders.
+const PARAKEET_TRANSCRIPTION_LANGUAGES: Language[] = SETTINGS_TRANSCRIPTION_LANGUAGES.filter(
+  lang => lang.code === 'auto' || lang.code === 'auto-translate'
+);
+
 interface LanguageSelectionProps {
   selectedLanguage: string;
   onLanguageChange: (language: string) => void;
@@ -136,7 +141,7 @@ export function LanguageSelection({
   // Parakeet only supports auto-detection (doesn't support manual language selection)
   const isParakeet = provider === 'parakeet';
   const availableLanguages = isParakeet
-    ? SETTINGS_TRANSCRIPTION_LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === 'auto-translate')
+    ? PARAKEET_TRANSCRIPTION_LANGUAGES
     : SETTINGS_TRANSCRIPTION_LANGUAGES;
   const { recentLanguages, allLanguages } = useMemo(
     () => groupTranscriptionLanguages(

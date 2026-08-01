@@ -66,6 +66,7 @@ export default function PageContent({
   const openModelSettingsRef = useRef<(() => void) | null>(null);
   const panelContainerRef = useRef<HTMLDivElement>(null);
   const panelResizeFrameRef = useRef<number | null>(null);
+  const panelResizeOffsetRef = useRef(0);
   const [panelSplit, setPanelSplit] = useState(DEFAULT_PANEL_SPLIT);
   const [isResizingPanels, setIsResizingPanels] = useState(false);
 
@@ -170,13 +171,16 @@ export default function PageContent({
   const handlePanelResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    // Keep the grab point fixed relative to the divider: the hit pad is wider than the divider.
+    const bounds = panelContainerRef.current?.getBoundingClientRect();
+    panelResizeOffsetRef.current = bounds ? event.clientX - (bounds.left + panelSplit * bounds.width) : 0;
     document.body.style.userSelect = 'none';
     setIsResizingPanels(true);
   };
 
   const handlePanelResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!isResizingPanels) return;
-    const nextSplit = clampPanelSplit(event.clientX);
+    const nextSplit = clampPanelSplit(event.clientX - panelResizeOffsetRef.current);
 
     if (panelResizeFrameRef.current !== null) cancelAnimationFrame(panelResizeFrameRef.current);
     panelResizeFrameRef.current = requestAnimationFrame(() => {
@@ -191,7 +195,7 @@ export default function PageContent({
       cancelAnimationFrame(panelResizeFrameRef.current);
       panelResizeFrameRef.current = null;
     }
-    const finalSplit = clampPanelSplit(event.clientX);
+    const finalSplit = clampPanelSplit(event.clientX - panelResizeOffsetRef.current);
     event.currentTarget.releasePointerCapture(event.pointerId);
     document.body.style.userSelect = '';
     setPanelSplit(finalSplit);
@@ -272,7 +276,7 @@ export default function PageContent({
         >
           <div className="absolute inset-y-0 -left-2 -right-2" />
         </div>
-        <div className="flex min-w-[320px] flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden" style={{ minWidth: MIN_PANEL_WIDTH }}>
         <SummaryPanel
           meeting={meeting}
           meetingTitle={meetingData.meetingTitle}

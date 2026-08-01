@@ -40,6 +40,10 @@ export interface VirtualizedTranscriptViewProps {
     onLoadMore?: () => void;
 }
 
+type RenameSpeakerResponse =
+    | { status: 'collision' }
+    | { status: 'success'; updated_segments: number; enrollment_queued: boolean };
+
 // Threshold for enabling virtualization (below this, use simple rendering)
 const VIRTUALIZATION_THRESHOLD = 10;
 
@@ -98,10 +102,8 @@ const TranscriptSegment = memo(function TranscriptSegment({
                 onFocus={(event) => event.currentTarget.select()}
                 onKeyDown={(event) => {
                     if (event.key === 'Enter') {
-                        const value = event.currentTarget.value.trim();
-                        if (value && value !== speaker) {
-                            onRenameSpeaker?.(speaker, value);
-                        }
+                        // Trimming and the no-op check live in the rename handler, the single chokepoint.
+                        onRenameSpeaker?.(speaker, event.currentTarget.value);
                         setIsRenamingSpeaker(false);
                     } else if (event.key === 'Escape') {
                         setIsRenamingSpeaker(false);
@@ -169,11 +171,16 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     const [speakerRenames, setSpeakerRenames] = useState<Record<string, string>>({});
     const pendingSpeakerRenames = useRef(new Set<string>());
 
-    type RenameSpeakerResponse =
-        | { status: 'collision' }
-        | { status: 'success'; updated_segments: number; enrollment_queued: boolean };
+    // The rename overlay maps this meeting's diarizer labels; a different
+    // meeting's labels are unrelated, so drop it when the meeting changes.
+    useEffect(() => {
+        setSpeakerRenames({});
+        pendingSpeakerRenames.current.clear();
+    }, [meetingId]);
 
-    const renameSpeaker = useCallback(async (oldName: string, newName: string) => {
+    const renameSpeaker = useCallback(async (oldName: string, rawNewName: string) => {
+        const newName = rawNewName.trim();
+        if (!newName || newName === oldName) return;
         if (!meetingId) {
             toast.error('Failed to rename speaker', { description: 'Meeting ID is unavailable.' });
             return;
@@ -217,11 +224,12 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
             });
 
             const count = response.updated_segments;
+            const segmentLabel = `${count} segment${count === 1 ? '' : 's'}`;
             if (response.enrollment_queued) {
-                toast.success(`Renamed speaker in ${count} segment${count === 1 ? '' : 's'}.`);
+                toast.success(`Renamed speaker in ${segmentLabel}.`);
             } else {
                 toast.warning('Speaker renamed', {
-                    description: `The displayed transcript was renamed in ${count} segment${count === 1 ? '' : 's'}, but voice-profile enrollment was not queued.`,
+                    description: `The displayed transcript was renamed in ${segmentLabel}, but voice-profile enrollment was not queued.`,
                 });
             }
         } catch (error) {

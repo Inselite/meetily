@@ -1,39 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isRecentLanguage } from '@/lib/transcription-language-recents';
 
 const MRU_KEY = 'transcription_language_recents';
 const MRU_EVENT = 'meetily:transcription-language-recents-changed';
 const MAX_RECENTS = 5;
 let lastCommittedValues: string[] = [];
-
-function isRecentLanguage(code: unknown): code is string {
-  return typeof code === 'string'
-    && code.length > 0
-    && code !== 'auto'
-    && code !== 'auto-translate';
-}
-
-function readStorageResult(): { values: string[]; accessible: boolean } {
-  if (typeof window === 'undefined') return { values: [], accessible: false };
-  try {
-    const raw = window.localStorage.getItem(MRU_KEY);
-    if (!raw) return { values: [], accessible: true };
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return { values: [], accessible: true };
-    const recents: string[] = [];
-    for (const item of parsed) {
-      if (!isRecentLanguage(item) || recents.includes(item)) continue;
-      recents.push(item);
-      if (recents.length >= MAX_RECENTS) break;
-    }
-    return { values: recents, accessible: true };
-  } catch {
-    return { values: [], accessible: false };
-  }
-}
-
-function readFromStorage(): string[] {
-  return readStorageResult().values;
-}
 
 function normalize(values: unknown[]): string[] {
   const normalized: string[] = [];
@@ -43,6 +14,23 @@ function normalize(values: unknown[]): string[] {
     if (normalized.length >= MAX_RECENTS) break;
   }
   return normalized;
+}
+
+function readStorageResult(): { values: string[]; accessible: boolean } {
+  if (typeof window === 'undefined') return { values: [], accessible: false };
+  try {
+    const raw = window.localStorage.getItem(MRU_KEY);
+    if (!raw) return { values: [], accessible: true };
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return { values: [], accessible: true };
+    return { values: normalize(parsed), accessible: true };
+  } catch {
+    return { values: [], accessible: false };
+  }
+}
+
+function readFromStorage(): string[] {
+  return readStorageResult().values;
 }
 
 function writeToStorage(values: string[]): string[] {

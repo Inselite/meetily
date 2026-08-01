@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, type PointerEvent as ReactPointerEvent } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
@@ -36,6 +36,9 @@ const DEFAULT_SIDEBAR_WIDTH = 256;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 420;
 const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar_width';
+
+const clampSidebarWidth = (width: number) =>
+  Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width));
 
 interface SidebarItem {
   id: string;
@@ -83,6 +86,8 @@ const Sidebar: React.FC = () => {
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const sidebarResizeOffsetRef = useRef(0);
+  const sidebarResizeFrameRef = useRef<number | null>(null);
 
   // State for edit modal
   const [editModalState, setEditModalState] = useState<{ isOpen: boolean; meetingId: string | null; currentTitle: string }>({
@@ -93,22 +98,29 @@ const Sidebar: React.FC = () => {
   const [editingTitle, setEditingTitle] = useState<string>('');
 
   useEffect(() => {
-    const savedWidth = Number.parseInt(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? '', 10);
-    if (Number.isFinite(savedWidth)) {
-      setSidebarWidth(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, savedWidth)));
+    const stored = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (stored === null) return;
+
+    const savedWidth = Number.parseInt(stored, 10);
+    const resolvedWidth = Number.isFinite(savedWidth) ? clampSidebarWidth(savedWidth) : DEFAULT_SIDEBAR_WIDTH;
+    setSidebarWidth(resolvedWidth);
+    // Heal unparseable or out-of-range values so the next load reads a clean number.
+    if (stored !== String(resolvedWidth)) {
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(resolvedWidth));
     }
   }, []);
 
   useEffect(() => {
     document.documentElement.style.setProperty('--sidebar-width', `${isCollapsed ? 64 : sidebarWidth}px`);
     document.documentElement.style.setProperty('--sidebar-transition-duration', isResizingSidebar ? '0ms' : '300ms');
-    return () => {
-      document.documentElement.style.removeProperty('--sidebar-width');
-      document.documentElement.style.removeProperty('--sidebar-transition-duration');
-    };
   }, [isCollapsed, sidebarWidth, isResizingSidebar]);
 
   useEffect(() => () => {
+    if (sidebarResizeFrameRef.current !== null) {
+      cancelAnimationFrame(sidebarResizeFrameRef.current);
+    }
+    document.documentElement.style.removeProperty('--sidebar-width');
+    document.documentElement.style.removeProperty('--sidebar-transition-duration');
     document.body.style.userSelect = '';
   }, []);
 
@@ -116,18 +128,30 @@ const Sidebar: React.FC = () => {
     if (isCollapsed) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    // Keep the grab point fixed relative to the edge: the hit pad is wider than the divider.
+    sidebarResizeOffsetRef.current = event.clientX - sidebarWidth;
     document.body.style.userSelect = 'none';
     setIsResizingSidebar(true);
   };
 
   const handleSidebarResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!isResizingSidebar) return;
-    setSidebarWidth(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, event.clientX)));
+    const nextWidth = clampSidebarWidth(event.clientX - sidebarResizeOffsetRef.current);
+
+    if (sidebarResizeFrameRef.current !== null) cancelAnimationFrame(sidebarResizeFrameRef.current);
+    sidebarResizeFrameRef.current = requestAnimationFrame(() => {
+      setSidebarWidth(nextWidth);
+      sidebarResizeFrameRef.current = null;
+    });
   };
 
   const handleSidebarResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!isResizingSidebar) return;
-    const finalWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, event.clientX));
+    if (sidebarResizeFrameRef.current !== null) {
+      cancelAnimationFrame(sidebarResizeFrameRef.current);
+      sidebarResizeFrameRef.current = null;
+    }
+    const finalWidth = clampSidebarWidth(event.clientX - sidebarResizeOffsetRef.current);
     event.currentTarget.releasePointerCapture(event.pointerId);
     document.body.style.userSelect = '';
     setSidebarWidth(finalWidth);

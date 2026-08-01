@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { motion } from 'framer-motion';
 import { Summary, SummaryResponse } from '@/types';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
@@ -17,6 +17,10 @@ import { useTemplates } from '@/hooks/meeting-details/useTemplates';
 import { useCopyOperations } from '@/hooks/meeting-details/useCopyOperations';
 import { useMeetingOperations } from '@/hooks/meeting-details/useMeetingOperations';
 import { useConfig } from '@/contexts/ConfigContext';
+
+const DEFAULT_PANEL_SPLIT = 1 / 3;
+const MIN_PANEL_WIDTH = 320;
+const PANEL_SPLIT_STORAGE_KEY = 'meeting_panel_split';
 
 export default function PageContent({
   meeting,
@@ -60,6 +64,10 @@ export default function PageContent({
 
   // Ref to store the modal open function from SummaryGeneratorButtonGroup
   const openModelSettingsRef = useRef<(() => void) | null>(null);
+  const panelContainerRef = useRef<HTMLDivElement>(null);
+  const panelResizeFrameRef = useRef<number | null>(null);
+  const [panelSplit, setPanelSplit] = useState(DEFAULT_PANEL_SPLIT);
+  const [isResizingPanels, setIsResizingPanels] = useState(false);
 
   // Sidebar context
   const { serverAddress } = useSidebar();
@@ -134,10 +142,67 @@ export default function PageContent({
     meeting,
   });
 
-  // Track page view
+  // Track page view and restore the user's panel split.
   useEffect(() => {
     Analytics.trackPageView('meeting_details');
+
+    const savedSplit = Number.parseFloat(localStorage.getItem(PANEL_SPLIT_STORAGE_KEY) ?? '');
+    if (Number.isFinite(savedSplit) && savedSplit > 0 && savedSplit < 1) {
+      setPanelSplit(savedSplit);
+    }
   }, []);
+
+  useEffect(() => () => {
+    if (panelResizeFrameRef.current !== null) {
+      cancelAnimationFrame(panelResizeFrameRef.current);
+    }
+    document.body.style.userSelect = '';
+  }, []);
+
+  const clampPanelSplit = (clientX: number) => {
+    const bounds = panelContainerRef.current?.getBoundingClientRect();
+    if (!bounds || bounds.width < MIN_PANEL_WIDTH * 2) return panelSplit;
+
+    const minimumSplit = MIN_PANEL_WIDTH / bounds.width;
+    return Math.min(1 - minimumSplit, Math.max(minimumSplit, (clientX - bounds.left) / bounds.width));
+  };
+
+  const handlePanelResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.style.userSelect = 'none';
+    setIsResizingPanels(true);
+  };
+
+  const handlePanelResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isResizingPanels) return;
+    const nextSplit = clampPanelSplit(event.clientX);
+
+    if (panelResizeFrameRef.current !== null) cancelAnimationFrame(panelResizeFrameRef.current);
+    panelResizeFrameRef.current = requestAnimationFrame(() => {
+      setPanelSplit(nextSplit);
+      panelResizeFrameRef.current = null;
+    });
+  };
+
+  const handlePanelResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isResizingPanels) return;
+    if (panelResizeFrameRef.current !== null) {
+      cancelAnimationFrame(panelResizeFrameRef.current);
+      panelResizeFrameRef.current = null;
+    }
+    const finalSplit = clampPanelSplit(event.clientX);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    document.body.style.userSelect = '';
+    setPanelSplit(finalSplit);
+    setIsResizingPanels(false);
+    localStorage.setItem(PANEL_SPLIT_STORAGE_KEY, String(finalSplit));
+  };
+
+  const resetPanelSplit = () => {
+    setPanelSplit(DEFAULT_PANEL_SPLIT);
+    localStorage.setItem(PANEL_SPLIT_STORAGE_KEY, String(DEFAULT_PANEL_SPLIT));
+  };
 
   // Auto-generate summary when flag is set
   useEffect(() => {
@@ -170,7 +235,7 @@ export default function PageContent({
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className="flex flex-col h-screen bg-muted/40"
     >
-      <div className="flex flex-1 min-w-0 overflow-hidden">
+      <div ref={panelContainerRef} className="flex flex-1 min-w-0 overflow-hidden">
         <TranscriptPanel
           transcripts={meetingData.transcripts}
           customPrompt={customPrompt}
@@ -191,7 +256,23 @@ export default function PageContent({
           meetingId={meeting.id}
           meetingFolderPath={meeting.folder_path}
           onRefetchTranscripts={onRefetchTranscripts}
+          style={{ width: `${panelSplit * 100}%`, minWidth: MIN_PANEL_WIDTH }}
         />
+        <div
+          role="separator"
+          aria-label="Resize transcript and summary panels"
+          aria-orientation="vertical"
+          aria-valuenow={Math.round(panelSplit * 100)}
+          onDoubleClick={resetPanelSplit}
+          onPointerDown={handlePanelResizeStart}
+          onPointerMove={handlePanelResizeMove}
+          onPointerUp={handlePanelResizeEnd}
+          onPointerCancel={handlePanelResizeEnd}
+          className={`relative z-10 hidden w-px shrink-0 cursor-col-resize touch-none md:block ${isResizingPanels ? 'bg-accent' : 'bg-border hover:bg-accent'}`}
+        >
+          <div className="absolute inset-y-0 -left-2 -right-2" />
+        </div>
+        <div className="flex min-w-[320px] flex-1 overflow-hidden">
         <SummaryPanel
           meeting={meeting}
           meetingTitle={meetingData.meetingTitle}
@@ -227,6 +308,7 @@ export default function PageContent({
           isModelConfigLoading={false}
           onOpenModelSettings={handleRegisterModalOpen}
         />
+        </div>
       </div>
     </motion.div>
   );

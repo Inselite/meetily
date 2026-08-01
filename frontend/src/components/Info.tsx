@@ -14,10 +14,10 @@ const Info = React.forwardRef<HTMLButtonElement, InfoProps>(({ isCollapsed }, re
       <DialogTrigger asChild>
         <button 
           ref={ref} 
-          className={`flex items-center justify-center mb-2 cursor-pointer border-none transition-colors ${
-            isCollapsed 
-              ? "bg-transparent p-2 hover:bg-muted rounded-lg"
-              : "w-full px-3 py-1.5 mt-1 text-sm font-medium text-foreground bg-muted hover:bg-muted rounded-lg shadow-sm"
+          className={`mb-2 flex cursor-pointer items-center border-none transition-colors ${
+            isCollapsed
+              ? "justify-center bg-transparent p-2 hover:bg-muted rounded-lg"
+              : "w-full justify-start px-3 py-1.5 mt-1 text-left text-sm font-medium text-foreground bg-muted hover:bg-accent rounded-lg shadow-sm"
           }`}
           title="About Meetily"
         >

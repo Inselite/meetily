@@ -4,7 +4,7 @@ import { Transcript, TranscriptSegmentData } from '@/types';
 import { TranscriptView } from '@/components/TranscriptView';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
-import { useMemo } from 'react';
+import { CSSProperties, useMemo } from 'react';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
@@ -28,6 +28,7 @@ interface TranscriptPanelProps {
   meetingId?: string;
   meetingFolderPath?: string | null;
   onRefetchTranscripts?: () => Promise<void>;
+  style?: CSSProperties;
 }
 
 export function TranscriptPanel({
@@ -48,6 +49,7 @@ export function TranscriptPanel({
   meetingId,
   meetingFolderPath,
   onRefetchTranscripts,
+  style,
 }: TranscriptPanelProps) {
   // Convert transcripts to segments if pagination is not used but we want virtualization
   const convertedSegments = useMemo(() => {
@@ -66,7 +68,10 @@ export function TranscriptPanel({
   }, [transcripts, usePagination, segments]);
 
   return (
-    <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-border bg-card flex-col relative shrink-0">
+    <div
+      className="hidden h-full min-w-0 shrink-0 flex-col bg-card md:flex"
+      style={style}
+    >
       {/* Title area */}
       <div className="p-4 border-b border-border">
         <TranscriptButtonGroup

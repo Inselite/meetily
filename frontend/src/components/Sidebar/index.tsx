@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, type PointerEvent as ReactPointerEvent } from 'react';
 import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
@@ -31,6 +31,11 @@ import Info from '../Info';
 import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
+
+const DEFAULT_SIDEBAR_WIDTH = 256;
+const MIN_SIDEBAR_WIDTH = 200;
+const MAX_SIDEBAR_WIDTH = 420;
+const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar_width';
 
 interface SidebarItem {
   id: string;
@@ -76,6 +81,8 @@ const Sidebar: React.FC = () => {
     model: 'parakeet-tdt-0.6b-v3-int8',
   });
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
 
   // State for edit modal
   const [editModalState, setEditModalState] = useState<{ isOpen: boolean; meetingId: string | null; currentTitle: string }>({
@@ -84,6 +91,49 @@ const Sidebar: React.FC = () => {
     currentTitle: ''
   });
   const [editingTitle, setEditingTitle] = useState<string>('');
+
+  useEffect(() => {
+    const savedWidth = Number.parseInt(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? '', 10);
+    if (Number.isFinite(savedWidth)) {
+      setSidebarWidth(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, savedWidth)));
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sidebar-width', `${isCollapsed ? 64 : sidebarWidth}px`);
+    document.documentElement.style.setProperty('--sidebar-transition-duration', isResizingSidebar ? '0ms' : '300ms');
+    return () => {
+      document.documentElement.style.removeProperty('--sidebar-width');
+      document.documentElement.style.removeProperty('--sidebar-transition-duration');
+    };
+  }, [isCollapsed, sidebarWidth, isResizingSidebar]);
+
+  useEffect(() => () => {
+    document.body.style.userSelect = '';
+  }, []);
+
+  const handleSidebarResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (isCollapsed) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.style.userSelect = 'none';
+    setIsResizingSidebar(true);
+  };
+
+  const handleSidebarResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isResizingSidebar) return;
+    setSidebarWidth(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, event.clientX)));
+  };
+
+  const handleSidebarResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isResizingSidebar) return;
+    const finalWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, event.clientX));
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    document.body.style.userSelect = '';
+    setSidebarWidth(finalWidth);
+    setIsResizingSidebar(false);
+    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(finalWidth));
+  };
 
   // Ensure 'meetings' folder is always expanded
   useEffect(() => {
@@ -571,7 +621,7 @@ const Sidebar: React.FC = () => {
     return (
       <div key={item.id}>
         <div
-          className={`flex items-center transition-all duration-150 group ${item.type === 'folder' && depth === 0
+          className={`flex items-center justify-start text-left transition-all duration-150 group ${item.type === 'folder' && depth === 0
             ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg'
             : `px-3 py-2 my-0.5 rounded-md text-sm ${isActive ? 'bg-info/15 text-info-text font-medium' :
               hasTranscriptMatch ? 'bg-warning/15' : 'hover:bg-accent'
@@ -620,7 +670,7 @@ const Sidebar: React.FC = () => {
                     <Plus className="w-3.5 h-3.5 text-info-text" />
                   </div>
                 )}
-                <span className="flex-1 break-words">{item.title}</span>
+                <span className="min-w-0 flex-1 break-words text-left">{item.title}</span>
                 {isMeetingItem && (
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                     <button
@@ -683,8 +733,8 @@ const Sidebar: React.FC = () => {
 
       <div
         data-testid="app-sidebar"
-        className={`flex h-screen flex-col border-r border-border bg-card text-card-foreground shadow-sm transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
-          }`}
+        className={`flex h-screen flex-col border-r border-border bg-card text-card-foreground shadow-sm ${isResizingSidebar ? 'transition-none' : 'transition-all duration-300'}`}
+        style={{ width: isCollapsed ? 64 : sidebarWidth }}
       >
         {/*  Header with traffic light spacing */}
         <div className="flex-shrink-0 h-22 flex items-center">
@@ -695,7 +745,7 @@ const Sidebar: React.FC = () => {
 
           <div className="flex-1">
             {!isCollapsed && (
-              <div className="p-3">
+              <div className="p-3 text-left">
                 <Logo isCollapsed={isCollapsed} />
 
                 <div className="relative mb-1">
@@ -746,7 +796,7 @@ const Sidebar: React.FC = () => {
                 {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
                   <div key={item.id}>
                     <div
-                      className="flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg"
+                      className="flex items-center justify-start text-left transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg"
                     >
                       <NotebookPen className="mr-2 h-4 w-4 text-muted-foreground" />
                       <span className="text-foreground">{item.title}</span>
@@ -781,7 +831,7 @@ const Sidebar: React.FC = () => {
             <button
               onClick={handleRecordingToggle}
               disabled={isRecording}
-              className={`flex w-full items-center justify-center rounded-lg px-3 py-2 text-sm font-medium text-recording-foreground shadow-sm transition-colors ${isRecording ? 'cursor-not-allowed bg-recording/50' : 'bg-recording hover:bg-recording/90'}`}
+              className={`flex w-full items-center justify-start rounded-lg px-3 py-2 text-left text-sm font-medium text-recording-foreground shadow-sm transition-colors ${isRecording ? 'cursor-not-allowed bg-recording/50' : 'bg-recording hover:bg-recording/90'}`}
             >
               {isRecording ? (
                 <>
@@ -799,7 +849,7 @@ const Sidebar: React.FC = () => {
             {betaFeatures.importAndRetranscribe && (
               <button
                 onClick={() => openImportDialog()}
-                className="mt-1 flex w-full items-center justify-center rounded-lg bg-info px-3 py-2 text-sm font-medium text-info-foreground shadow-sm transition-colors hover:bg-info/90"
+                className="mt-1 flex w-full items-center justify-start rounded-lg bg-info px-3 py-2 text-left text-sm font-medium text-info-foreground shadow-sm transition-colors hover:bg-info/90"
               >
                 <Upload className="w-4 h-4 mr-2" />
                 <span>Import Audio</span>
@@ -808,18 +858,36 @@ const Sidebar: React.FC = () => {
 
             <button
               onClick={() => router.push('/settings')}
-              className="mb-1 mt-1 flex w-full items-center justify-center rounded-lg bg-muted px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+              className="mb-1 mt-1 flex w-full items-center justify-start rounded-lg bg-muted px-3 py-1.5 text-left text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
             >
               <Settings className="w-4 h-4 mr-2" />
               <span>Settings</span>
             </button>
             <Info isCollapsed={isCollapsed} />
-            <div className="flex w-full items-center justify-center px-3 py-1 text-xs text-muted-foreground">
+            <div className="flex w-full items-center justify-start px-3 py-1 text-left text-xs text-muted-foreground">
               v0.4.0
             </div>
           </div>
         )}
       </div>
+
+      {!isCollapsed && (
+        <div
+          role="separator"
+          aria-label="Resize sidebar"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemax={MAX_SIDEBAR_WIDTH}
+          aria-valuenow={sidebarWidth}
+          onPointerDown={handleSidebarResizeStart}
+          onPointerMove={handleSidebarResizeMove}
+          onPointerUp={handleSidebarResizeEnd}
+          onPointerCancel={handleSidebarResizeEnd}
+          className={`absolute inset-y-0 -right-2 z-40 w-4 cursor-col-resize touch-none ${isResizingSidebar ? 'bg-accent/50' : 'bg-transparent hover:bg-accent/50'}`}
+        >
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+        </div>
+      )}
 
       {/* Confirmation Modal for Delete */}
       <ConfirmationModal

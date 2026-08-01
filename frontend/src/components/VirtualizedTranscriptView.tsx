@@ -10,6 +10,7 @@ import { RecordingStatusBar } from "./RecordingStatusBar";
 import { motion, AnimatePresence } from "framer-motion";
 import { TranscriptSegmentData } from "@/types";
 import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 
 export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
@@ -166,14 +167,47 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     onLoadMore,
 }) => {
     const [speakerRenames, setSpeakerRenames] = useState<Record<string, string>>({});
-    const renameSpeaker = useCallback((oldName: string, newName: string) => {
-        if (!meetingId) return;
+    const pendingSpeakerRenames = useRef(new Set<string>());
 
-        invoke('api_rename_speaker', {
+    type RenameSpeakerResponse =
+        | { status: 'collision' }
+        | { status: 'success'; updated_segments: number; enrollment_queued: boolean };
+
+    const renameSpeaker = useCallback(async (oldName: string, newName: string) => {
+        if (!meetingId) {
+            toast.error('Failed to rename speaker', { description: 'Meeting ID is unavailable.' });
+            return;
+        }
+        if (pendingSpeakerRenames.current.has(oldName)) return;
+        pendingSpeakerRenames.current.add(oldName);
+
+        const invokeRename = (allowMerge: boolean) => invoke<RenameSpeakerResponse>('api_rename_speaker', {
             meetingId,
             oldSpeaker: oldName,
             newSpeaker: newName,
-        }).then(() => {
+            allowMerge,
+        });
+
+        try {
+            let response = await invokeRename(false);
+            if (response?.status === 'collision') {
+                const confirmed = window.confirm(
+                    `A speaker named "${newName}" already exists. This will merge all "${oldName}" segments into it. Undoing the merge requires re-diarization. Continue?`
+                );
+                if (!confirmed) return;
+                response = await invokeRename(true);
+            }
+
+            if (
+                !response
+                || response.status !== 'success'
+                || !Number.isInteger(response.updated_segments)
+                || response.updated_segments <= 0
+                || typeof response.enrollment_queued !== 'boolean'
+            ) {
+                throw new Error('The rename returned an invalid result.');
+            }
+
             setSpeakerRenames((renames) => {
                 const updatedRenames = Object.fromEntries(
                     Object.entries(renames).map(([key, value]) => [key, value === oldName ? newName : value])
@@ -181,9 +215,23 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                 updatedRenames[oldName] = newName;
                 return updatedRenames;
             });
-        }).catch((error) => {
+
+            const count = response.updated_segments;
+            if (response.enrollment_queued) {
+                toast.success(`Renamed speaker in ${count} segment${count === 1 ? '' : 's'}.`);
+            } else {
+                toast.warning('Speaker renamed', {
+                    description: `The displayed transcript was renamed in ${count} segment${count === 1 ? '' : 's'}, but voice-profile enrollment was not queued.`,
+                });
+            }
+        } catch (error) {
             console.error('Failed to rename speaker:', error);
-        });
+            toast.error('Failed to rename speaker', {
+                description: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            pendingSpeakerRenames.current.delete(oldName);
+        }
     }, [meetingId]);
 
     // Create scroll ref first - shared between virtualizer and auto-scroll hook

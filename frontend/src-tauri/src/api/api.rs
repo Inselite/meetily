@@ -9,7 +9,7 @@ use crate::{
         models::MeetingModel,
         repositories::{
             meeting::MeetingsRepository, setting::SettingsRepository,
-            transcript::TranscriptsRepository,
+            transcript::{RenameSpeakerOutcome, TranscriptsRepository},
         },
     },
     state::AppState,
@@ -779,6 +779,55 @@ pub async fn api_delete_meeting<R: Runtime>(
     }
 }
 
+fn validate_speaker_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains(['=', '\n', '\r'])
+}
+
+/// Resolve a display label through every branch of the append-only speakers.txt multimap.
+fn resolve_speaker_labels(contents: &str, start: &str) -> Result<Vec<String>, String> {
+    let mut mappings: HashMap<&str, Vec<Result<&str, ()>>> = HashMap::new();
+    for line in contents.lines().filter(|line| !line.is_empty()) {
+        let Some((left, right)) = line.split_once('=') else {
+            mappings.entry(line).or_default().push(Err(()));
+            continue;
+        };
+        let value = if left.is_empty() || right.is_empty() || right.contains('=') {
+            Err(())
+        } else {
+            Ok(right)
+        };
+        mappings.entry(left).or_default().push(value);
+    }
+
+    fn visit<'a>(
+        label: &'a str,
+        mappings: &HashMap<&'a str, Vec<Result<&'a str, ()>>>,
+        path: &mut Vec<&'a str>,
+        terminals: &mut Vec<String>,
+    ) -> Result<(), String> {
+        if path.contains(&label) {
+            return Err("cycle in reachable speaker mappings".to_string());
+        }
+        let Some(edges) = mappings.get(label) else {
+            if !terminals.iter().any(|terminal| terminal == label) {
+                terminals.push(label.to_string());
+            }
+            return Ok(());
+        };
+        path.push(label);
+        for edge in edges {
+            let next = edge.map_err(|_| "malformed reachable speaker mapping".to_string())?;
+            visit(next, mappings, path, terminals)?;
+        }
+        path.pop();
+        Ok(())
+    }
+
+    let mut terminals = Vec::new();
+    visit(start, &mappings, &mut Vec::new(), &mut terminals)?;
+    Ok(terminals)
+}
+
 #[tauri::command]
 pub async fn api_rename_speaker<R: Runtime>(
     _app: AppHandle<R>,
@@ -786,11 +835,15 @@ pub async fn api_rename_speaker<R: Runtime>(
     meeting_id: String,
     old_speaker: String,
     new_speaker: String,
+    allow_merge: bool,
 ) -> Result<serde_json::Value, String> {
     let old_speaker = old_speaker.trim().to_string();
     let new_speaker = new_speaker.trim().to_string();
-    if old_speaker.is_empty() || new_speaker.is_empty() || new_speaker.contains('=') {
-        return Err("Speaker names must be non-empty and must not contain '='".to_string());
+    if !validate_speaker_name(&old_speaker)
+        || !validate_speaker_name(&new_speaker)
+        || old_speaker == new_speaker
+    {
+        return Err("Speaker names are invalid or identical".to_string());
     }
     log_info!(
         "api_rename_speaker: {:?} -> {:?} in {}",
@@ -799,36 +852,121 @@ pub async fn api_rename_speaker<R: Runtime>(
         meeting_id
     );
 
-    let pool = state.db_manager.pool();
-    let (updated, folder) =
-        TranscriptsRepository::rename_speaker(pool, &meeting_id, &old_speaker, &new_speaker)
-            .await
-            .map_err(|e| format!("Failed to rename speaker: {}", e))?;
+    let outcome = TranscriptsRepository::rename_speaker(
+        state.db_manager.pool(),
+        &meeting_id,
+        &old_speaker,
+        &new_speaker,
+        allow_merge,
+    )
+    .await
+    .map_err(|e| format!("Failed to rename speaker: {}", e))?;
+    let RenameSpeakerOutcome::Renamed {
+        updated_segments,
+        folder,
+    } = outcome
+    else {
+        return Ok(serde_json::json!({ "status": "collision" }));
+    };
+    if updated_segments == 0 {
+        return Err("No matching speaker segments were found".to_string());
+    }
 
-    // Queue voice-profile enrollment for the external diarization sweep: it
-    // picks up speakers.txt from the recording folder, enrolls the voice for
-    // future auto-naming, and relabels the markdown transcript.
     let mut enrollment_queued = false;
-    if let Some(folder) = folder.filter(|f| !f.is_empty()) {
+    if let Some(folder) = folder.filter(|folder| !folder.is_empty()) {
         let path = std::path::Path::new(&folder).join("speakers.txt");
-        match std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-        {
-            Ok(mut f) => {
-                use std::io::Write;
-                enrollment_queued = writeln!(f, "{}={}", new_speaker, old_speaker).is_ok();
+        let resolution = match std::fs::read_to_string(&path) {
+            Ok(contents) => resolve_speaker_labels(&contents, &old_speaker)
+                .map(|terminals| (terminals, !contents.is_empty() && !contents.ends_with('\n'))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok((vec![old_speaker.clone()], false))
             }
-            Err(e) => log_warn!("could not write speakers.txt in {}: {}", folder, e),
+            Err(error) => Err(format!("could not read speakers.txt: {}", error)),
+        };
+        match resolution {
+            Ok((terminals, needs_separator)) => {
+                let mut payload = if needs_separator {
+                    "\n".to_string()
+                } else {
+                    String::new()
+                };
+                payload.extend(
+                    terminals
+                        .iter()
+                        .map(|terminal| format!("{}={}\n", new_speaker, terminal)),
+                );
+                match std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                {
+                    Ok(mut file) => {
+                        use std::io::Write;
+                        match file.write_all(payload.as_bytes()) {
+                            Ok(()) => enrollment_queued = true,
+                            Err(error) => {
+                                log_warn!("could not write {}: {}", path.display(), error)
+                            }
+                        }
+                    }
+                    Err(error) => log_warn!("could not open {}: {}", path.display(), error),
+                }
+            }
+            Err(error) => log_warn!("could not resolve {}: {}", path.display(), error),
         }
     }
 
     Ok(serde_json::json!({
         "status": "success",
-        "updated_segments": updated,
+        "updated_segments": updated_segments,
         "enrollment_queued": enrollment_queued,
     }))
+}
+
+#[cfg(test)]
+mod speaker_mapping_tests {
+    use super::resolve_speaker_labels;
+
+    #[test]
+    fn resolves_direct_multihop_and_crlf_mappings() {
+        assert_eq!(
+            resolve_speaker_labels("Bob=Robert\r\nRobert=Speaker 1\r\n", "Bob").unwrap(),
+            vec!["Speaker 1"]
+        );
+    }
+
+    #[test]
+    fn resolves_multiple_terminals_in_file_order() {
+        let input = "Bob=Speaker 2\nBob=Speaker 1\nBob=Speaker 2\n";
+        assert_eq!(
+            resolve_speaker_labels(input, "Bob").unwrap(),
+            vec!["Speaker 2", "Speaker 1"]
+        );
+    }
+
+    #[test]
+    fn deduplicates_converging_branches() {
+        let input = "Bob=Robert\nBob=Bobby\nRobert=Speaker 1\nBobby=Speaker 1\n";
+        assert_eq!(
+            resolve_speaker_labels(input, "Bob").unwrap(),
+            vec!["Speaker 1"]
+        );
+    }
+
+    #[test]
+    fn ignores_unrelated_malformed_lines_but_rejects_reachable_ones() {
+        assert_eq!(
+            resolve_speaker_labels("Other=bad=value\n", "Bob").unwrap(),
+            vec!["Bob"]
+        );
+        assert!(resolve_speaker_labels("Bob=bad=value\n", "Bob").is_err());
+        assert!(resolve_speaker_labels("Bob\n", "Bob").is_err());
+    }
+
+    #[test]
+    fn rejects_reachable_cycles() {
+        assert!(resolve_speaker_labels("Bob=Robert\nRobert=Bob\n", "Bob").is_err());
+    }
 }
 
 #[tauri::command]

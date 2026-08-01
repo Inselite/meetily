@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Globe } from 'lucide-react';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useRecentTranscriptionLanguages } from '@/hooks/useRecentTranscriptionLanguages';
+import { groupTranscriptionLanguages } from '@/lib/transcription-language-recents';
 
 export interface Language {
   code: string;
@@ -11,7 +12,7 @@ export interface Language {
 }
 
 // ISO 639-1 language codes supported by Whisper
-const LANGUAGES: Language[] = [
+export const SETTINGS_TRANSCRIPTION_LANGUAGES: Language[] = [
   { code: 'auto', name: 'Auto Detect (Original Language)' },
   { code: 'auto-translate', name: 'Auto Detect (Translate to English)' },
   { code: 'en', name: 'English' },
@@ -135,11 +136,16 @@ export function LanguageSelection({
   // Parakeet only supports auto-detection (doesn't support manual language selection)
   const isParakeet = provider === 'parakeet';
   const availableLanguages = isParakeet
-    ? LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === 'auto-translate')
-    : LANGUAGES;
-  const recentLanguages = recents
-    .map(code => availableLanguages.find(language => language.code === code))
-    .filter((language): language is Language => Boolean(language));
+    ? SETTINGS_TRANSCRIPTION_LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === 'auto-translate')
+    : SETTINGS_TRANSCRIPTION_LANGUAGES;
+  const { recentLanguages, allLanguages } = useMemo(
+    () => groupTranscriptionLanguages(
+      isParakeet ? [] : recents,
+      availableLanguages,
+      SETTINGS_TRANSCRIPTION_LANGUAGES,
+    ),
+    [availableLanguages, isParakeet, recents],
+  );
 
   const handleLanguageChange = async (languageCode: string) => {
     setSaving(true);
@@ -150,7 +156,7 @@ export function LanguageSelection({
       console.log('Language preference saved:', languageCode);
 
       // Track language selection analytics
-      const selectedLang = LANGUAGES.find(lang => lang.code === languageCode);
+      const selectedLang = SETTINGS_TRANSCRIPTION_LANGUAGES.find(lang => lang.code === languageCode);
       await Analytics.track('language_selected', {
         language_code: languageCode,
         language_name: selectedLang?.name || 'Unknown',
@@ -175,7 +181,7 @@ export function LanguageSelection({
   };
 
   // Find the selected language name for display
-  const selectedLanguageName = LANGUAGES.find(
+  const selectedLanguageName = SETTINGS_TRANSCRIPTION_LANGUAGES.find(
     lang => lang.code === selectedLanguage
   )?.name || 'Auto Detect (Original Language)';
 
@@ -211,7 +217,7 @@ export function LanguageSelection({
           )}
           {!isParakeet && (
             <optgroup label="All languages">
-              {availableLanguages
+              {allLanguages
                 .filter(language => language.code !== 'auto' && language.code !== 'auto-translate')
                 .map(language => (
                   <option key={language.code} value={language.code}>

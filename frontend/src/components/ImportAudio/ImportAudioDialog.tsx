@@ -40,6 +40,8 @@ import { useSidebar } from '../Sidebar/SidebarProvider';
 import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
 import { useRecentTranscriptionLanguages } from '@/hooks/useRecentTranscriptionLanguages';
+import { SETTINGS_TRANSCRIPTION_LANGUAGES } from '@/components/LanguageSelection';
+import { groupTranscriptionLanguages } from '@/lib/transcription-language-recents';
 
 
 interface ImportAudioDialogProps {
@@ -80,10 +82,10 @@ export function ImportAudioDialog({
   const [title, setTitle] = useState('');
   const [selectedLang, setSelectedLang] = useState(selectedLanguage || 'auto');
   const { recents, addRecent } = useRecentTranscriptionLanguages();
-  const recentLanguages = recents
-    .map(code => LANGUAGES.find(language => language.code === code))
-    .filter((language): language is (typeof LANGUAGES)[number] => Boolean(language));
-  const recentCodes = new Set(recentLanguages.map(language => language.code));
+  const { recentLanguages, allLanguages } = useMemo(
+    () => groupTranscriptionLanguages(recents, LANGUAGES, SETTINGS_TRANSCRIPTION_LANGUAGES),
+    [recents],
+  );
 
   const handleLanguageChange = (languageCode: string) => {
     setSelectedLang(languageCode);
@@ -377,7 +379,7 @@ export function ImportAudioDialog({
                               )}
                               <SelectGroup>
                                 <SelectLabel>All languages</SelectLabel>
-                                {LANGUAGES.filter(lang => !recentCodes.has(lang.code)).map(lang => (
+                                {allLanguages.map(lang => (
                                   <SelectItem key={lang.code} value={lang.code}>{lang.name}</SelectItem>
                                 ))}
                               </SelectGroup>

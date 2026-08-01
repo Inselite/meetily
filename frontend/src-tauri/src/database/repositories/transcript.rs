@@ -6,31 +6,57 @@ use uuid::Uuid;
 
 pub struct TranscriptsRepository;
 
+pub enum RenameSpeakerOutcome {
+    Collision,
+    Renamed {
+        updated_segments: u64,
+        folder: Option<String>,
+    },
+}
+
 impl TranscriptsRepository {
-    /// Rename a diarized speaker across one meeting's segments. Returns the
-    /// number of segments updated plus the meeting's recording folder path.
+    /// Atomically checks for a target collision and renames one meeting's speaker segments.
     pub async fn rename_speaker(
         pool: &SqlitePool,
         meeting_id: &str,
         old_speaker: &str,
         new_speaker: &str,
-    ) -> Result<(u64, Option<String>), SqlxError> {
+        allow_merge: bool,
+    ) -> Result<RenameSpeakerOutcome, SqlxError> {
+        let mut transaction = pool.begin().await?;
+        let collision: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM transcripts WHERE meeting_id = ? AND speaker = ?)",
+        )
+        .bind(meeting_id)
+        .bind(new_speaker)
+        .fetch_one(&mut *transaction)
+        .await?;
+
+        if collision && !allow_merge {
+            transaction.rollback().await?;
+            return Ok(RenameSpeakerOutcome::Collision);
+        }
+
         let updated =
             sqlx::query("UPDATE transcripts SET speaker = ? WHERE meeting_id = ? AND speaker = ?")
                 .bind(new_speaker)
                 .bind(meeting_id)
                 .bind(old_speaker)
-                .execute(pool)
+                .execute(&mut *transaction)
                 .await?
                 .rows_affected();
         let folder = sqlx::query_scalar::<_, Option<String>>(
             "SELECT folder_path FROM meetings WHERE id = ?",
         )
         .bind(meeting_id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *transaction)
         .await?
         .flatten();
-        Ok((updated, folder))
+        transaction.commit().await?;
+        Ok(RenameSpeakerOutcome::Renamed {
+            updated_segments: updated,
+            folder,
+        })
     }
 
     /// Saves a new meeting and its associated transcript segments.

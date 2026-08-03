@@ -923,10 +923,19 @@ pub async fn api_rename_speaker<R: Runtime>(
     }))
 }
 
+/// `remove_file` that treats "already gone" as success.
+fn remove_if_present(path: &std::path::Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    }
+}
+
 /// Set (or clear, with None) the expected diarization speaker count for a
 /// meeting. Writes `speakers=N` into the meeting folder's diarize.conf and
 /// removes the diarization outputs so the external sweep re-processes the
-/// meeting with the new count within its next cycle.
+/// meeting with the new count within its next cycle. The existing summary
+/// is kept as summary.md.bak in case regeneration fails (e.g. offline).
 #[tauri::command]
 pub async fn api_set_diarize_speakers<R: Runtime>(
     _app: AppHandle<R>,
@@ -939,13 +948,12 @@ pub async fn api_set_diarize_speakers<R: Runtime>(
             return Err("Speaker count must be between 1 and 32".to_string());
         }
     }
-    let folder: Option<Option<String>> =
-        sqlx::query_scalar("SELECT folder_path FROM meetings WHERE id = ?")
-            .bind(&meeting_id)
-            .fetch_optional(state.db_manager.pool())
+    let meeting =
+        MeetingsRepository::get_meeting_metadata(state.db_manager.pool(), &meeting_id)
             .await
-            .map_err(|e| format!("Database error: {}", e))?;
-    let Some(folder) = folder.flatten().filter(|f| !f.is_empty()) else {
+            .map_err(|e| format!("Database error: {}", e))?
+            .ok_or_else(|| "Meeting not found".to_string())?;
+    let Some(folder) = meeting.folder_path.filter(|f| !f.is_empty()) else {
         return Err("This meeting has no recording folder".to_string());
     };
     let dir = std::path::Path::new(&folder);
@@ -958,10 +966,8 @@ pub async fn api_set_diarize_speakers<R: Runtime>(
         Ok(contents) => contents
             .lines()
             .filter(|line| {
-                line.split('=')
-                    .next()
-                    .map(|key| !key.trim().eq_ignore_ascii_case("speakers"))
-                    .unwrap_or(true)
+                let key = line.split_once('=').map_or(*line, |(key, _)| key);
+                !key.trim().eq_ignore_ascii_case("speakers")
             })
             .map(str::to_string)
             .collect(),
@@ -972,24 +978,32 @@ pub async fn api_set_diarize_speakers<R: Runtime>(
         lines.push(format!("speakers={}", n));
     }
     if lines.is_empty() {
-        if let Err(error) = std::fs::remove_file(&conf) {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                return Err(format!("could not remove diarize.conf: {}", error));
-            }
-        }
+        remove_if_present(&conf)
+            .map_err(|error| format!("could not remove diarize.conf: {}", error))?;
     } else {
         std::fs::write(&conf, lines.join("\n") + "\n")
             .map_err(|error| format!("could not write diarize.conf: {}", error))?;
     }
 
-    // Removing the outputs is what re-queues the meeting for the watcher;
-    // .diarize-failed is cleared too so a previously failed meeting retries.
-    for name in ["transcript_diarized.md", "summary.md", ".diarize-failed"] {
-        if let Err(error) = std::fs::remove_file(dir.join(name)) {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                return Err(format!("could not remove {}: {}", name, error));
-            }
-        }
+    // The summary is only stored on disk, and regenerating it can fail
+    // (OpenRouter down, Ollama not running) — keep a backup, don't delete.
+    let summary = dir.join("summary.md");
+    if summary.exists() {
+        std::fs::rename(&summary, dir.join("summary.md.bak"))
+            .map_err(|error| format!("could not back up summary.md: {}", error))?;
+    }
+    // Clearing stale failure counters lets a previously exhausted meeting
+    // retry both steps. transcript_diarized.md goes last: its absence is the
+    // sweep's re-diarize trigger, so an earlier error leaves the meeting in
+    // its previous consistent "done" state rather than half-queued.
+    //
+    // Known window: if the sweep is processing this meeting right now, its
+    // in-flight output lands after our deletion and the immediate re-run is
+    // skipped. The count itself is safe in diarize.conf and is honored by
+    // any later re-diarization (another menu pick, or after a Retranscribe).
+    for name in [".diarize-failed", ".summarize-failed", "transcript_diarized.md"] {
+        remove_if_present(&dir.join(name))
+            .map_err(|error| format!("could not remove {}: {}", name, error))?;
     }
     log_info!(
         "api_set_diarize_speakers: {:?} for {} — re-diarization queued",

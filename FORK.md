@@ -56,8 +56,12 @@ voice into several). The transcript toolbar's **Speakers** menu (Auto-detect,
 
 - A new `api_set_diarize_speakers` Tauri command writes `speakers=N` into
   `diarize.conf` in the meeting's recording folder (preserving any other
-  lines; Auto-detect removes the line) and deletes `transcript_diarized.md`,
-  `summary.md`, and any `.diarize-failed` marker.
+  lines; Auto-detect removes the line), backs up the current summary to
+  `summary.md.bak` (regeneration can fail offline — the old summary is never
+  the only casualty), clears stale `.diarize-failed`/`.summarize-failed`
+  retry counters, and deletes `transcript_diarized.md` last — its absence
+  is the sweep's re-process trigger, so a mid-way error leaves the meeting
+  in its previous consistent state.
 - Deleting the outputs is the re-processing trigger: the meetily-diarize
   sweep re-diarizes the meeting within ~3 minutes, honoring the count by
   searching the clustering threshold (FluidAudio's own `--num-clusters` is

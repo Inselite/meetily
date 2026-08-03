@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ import Analytics from '@/lib/analytics';
 import { RetranscribeDialog } from './RetranscribeDialog';
 import { useConfig } from '@/contexts/ConfigContext';
 
-const SPEAKER_COUNT_CHOICES = [2, 3, 4, 5, 6, 7, 8];
+const SPEAKER_COUNT_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8];
 
 
 interface TranscriptButtonGroupProps {
@@ -42,24 +42,28 @@ export function TranscriptButtonGroup({
   const { betaFeatures } = useConfig();
   const [showRetranscribeDialog, setShowRetranscribeDialog] = useState(false);
   const [settingSpeakers, setSettingSpeakers] = useState(false);
+  const settingSpeakersRef = useRef(false);
 
   const handleSetSpeakerCount = useCallback(async (speakers: number | null) => {
-    if (!meetingId || settingSpeakers) return;
+    if (!meetingId || settingSpeakersRef.current) return;
+    Analytics.trackButtonClick('set_diarize_speakers', 'meeting_details');
+    settingSpeakersRef.current = true;
     setSettingSpeakers(true);
     try {
       await invoke('api_set_diarize_speakers', { meetingId, speakers });
       toast.success(
         speakers === null
           ? 'Speaker count reset to automatic — re-diarization queued'
-          : `Re-diarization queued with ${speakers} speakers`,
+          : `Re-diarization queued with ${speakers} speaker${speakers === 1 ? '' : 's'}`,
         { description: 'Labels update within a few minutes.' },
       );
     } catch (error) {
       toast.error(`Could not queue re-diarization: ${error}`);
     } finally {
+      settingSpeakersRef.current = false;
       setSettingSpeakers(false);
     }
-  }, [meetingId, settingSpeakers]);
+  }, [meetingId]);
 
   const handleRetranscribeComplete = useCallback(async () => {
     // Refetch transcripts to show the updated data
@@ -120,7 +124,7 @@ export function TranscriptButtonGroup({
               </DropdownMenuItem>
               {SPEAKER_COUNT_CHOICES.map((count) => (
                 <DropdownMenuItem key={count} onSelect={() => handleSetSpeakerCount(count)}>
-                  {count} speakers
+                  {count} {count === 1 ? 'speaker' : 'speakers'}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>

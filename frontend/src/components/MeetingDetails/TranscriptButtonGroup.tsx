@@ -157,6 +157,7 @@ export function TranscriptButtonGroup({
         <Button
           variant="outline"
           size="sm"
+          className="xl:px-4"
           onClick={() => {
             Analytics.trackButtonClick('copy_transcript', 'meeting_details');
             onCopyTranscript();
@@ -164,7 +165,7 @@ export function TranscriptButtonGroup({
           disabled={transcriptCount === 0}
           title={transcriptCount === 0 ? 'No transcript available' : 'Copy Transcript'}
         >
-          <Copy className="xl:mr-2" size={18} />
+          <Copy />
           <span className="hidden lg:inline">Copy</span>
         </Button>
 
@@ -178,7 +179,7 @@ export function TranscriptButtonGroup({
           }}
           title="Open Recording Folder"
         >
-          <FolderOpen className="xl:mr-2" size={18} />
+          <FolderOpen />
           <span className="hidden lg:inline">Recording</span>
         </Button>
 
@@ -197,9 +198,9 @@ export function TranscriptButtonGroup({
                 }
               >
                 {diarizing ? (
-                  <Loader2 className="xl:mr-2 animate-spin" size={18} />
+                  <Loader2 className="animate-spin" />
                 ) : (
-                  <Users className="xl:mr-2" size={18} />
+                  <Users />
                 )}
                 <span className="hidden lg:inline">
                   {diarizing ? 'Relabeling…' : 'Speakers'}
@@ -228,7 +229,7 @@ export function TranscriptButtonGroup({
             }}
             title="Retranscribe to enhance your recorded audio"
           >
-            <RefreshCw className="xl:mr-2" size={18} />
+            <RefreshCw />
             <span className="hidden lg:inline">Enhance</span>
           </Button>
         )}

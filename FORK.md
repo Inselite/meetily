@@ -66,6 +66,12 @@ voice into several). The transcript toolbar's **Speakers** menu (Auto-detect,
   sweep re-diarizes the meeting within ~3 minutes, honoring the count by
   searching the clustering threshold (FluidAudio's own `--num-clusters` is
   ignored in streaming mode), then re-labels the DB and re-summarizes.
+- Live feedback: `api_get_diarize_status` reports the labeled transcript's
+  mtime and the pinned count. The menu shows a check mark on the current
+  setting; after a pick (or a Retranscribe) the button becomes a spinning
+  "Relabeling…" indicator that polls every 10 s, then toasts and refetches
+  the transcript when the sweep's fresh output lands (mtime-gated, so a
+  stale pre-Retranscribe transcript never counts as done; 15-min timeout).
 
 ## Merged: dark mode (upstream PR #575)
 

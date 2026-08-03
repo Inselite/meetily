@@ -1,11 +1,12 @@
 # Fork: speaker-display
 
 This fork of [Zackriya-Solutions/meeting-minutes](https://github.com/Zackriya-Solutions/meeting-minutes)
-carries three patches: **display diarized speaker labels** from the
+carries four patches: **display diarized speaker labels** from the
 `transcripts.speaker` column, which upstream's own migration
 (`20251110000001_add_speaker_field.sql`) creates but which stock CE never
-reads, **rename speakers in-app** by clicking a label, and **recently used
-languages** pinned at the top of the transcription-language pickers. The
+reads, **rename speakers in-app** by clicking a label, **recently used
+languages** pinned at the top of the transcription-language pickers, and a
+**per-meeting speaker count** menu in the transcript toolbar. The
 column is
 populated externally by
 [meetily-diarize](https://github.com/Inselite/meetily-diarize) — this fork
@@ -46,6 +47,21 @@ Import Audio dialog) show a **"Recently used"** group at the top of the
 ~100-entry list — the last five manually selected languages, most recent
 first. Stored in localStorage (`transcription_language_recents`), synced
 across open pickers, and the two Auto Detect entries stay pinned above it.
+
+## Patch 4: per-meeting speaker count
+
+Real-world audio can merge two similar voices into one cluster (or split one
+voice into several). The transcript toolbar's **Speakers** menu (Auto-detect,
+2–8) tells the diarizer the real headcount:
+
+- A new `api_set_diarize_speakers` Tauri command writes `speakers=N` into
+  `diarize.conf` in the meeting's recording folder (preserving any other
+  lines; Auto-detect removes the line) and deletes `transcript_diarized.md`,
+  `summary.md`, and any `.diarize-failed` marker.
+- Deleting the outputs is the re-processing trigger: the meetily-diarize
+  sweep re-diarizes the meeting within ~3 minutes, honoring the count by
+  searching the clustering threshold (FluidAudio's own `--num-clusters` is
+  ignored in streaming mode), then re-labels the DB and re-summarizes.
 
 ## Merged: dark mode (upstream PR #575)
 

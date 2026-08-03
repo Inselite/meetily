@@ -923,6 +923,82 @@ pub async fn api_rename_speaker<R: Runtime>(
     }))
 }
 
+/// Set (or clear, with None) the expected diarization speaker count for a
+/// meeting. Writes `speakers=N` into the meeting folder's diarize.conf and
+/// removes the diarization outputs so the external sweep re-processes the
+/// meeting with the new count within its next cycle.
+#[tauri::command]
+pub async fn api_set_diarize_speakers<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    speakers: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    if let Some(n) = speakers {
+        if !(1..=32).contains(&n) {
+            return Err("Speaker count must be between 1 and 32".to_string());
+        }
+    }
+    let folder: Option<Option<String>> =
+        sqlx::query_scalar("SELECT folder_path FROM meetings WHERE id = ?")
+            .bind(&meeting_id)
+            .fetch_optional(state.db_manager.pool())
+            .await
+            .map_err(|e| format!("Database error: {}", e))?;
+    let Some(folder) = folder.flatten().filter(|f| !f.is_empty()) else {
+        return Err("This meeting has no recording folder".to_string());
+    };
+    let dir = std::path::Path::new(&folder);
+    if !dir.exists() {
+        return Err(format!("Recording folder not found: {}", folder));
+    }
+
+    let conf = dir.join("diarize.conf");
+    let mut lines: Vec<String> = match std::fs::read_to_string(&conf) {
+        Ok(contents) => contents
+            .lines()
+            .filter(|line| {
+                line.split('=')
+                    .next()
+                    .map(|key| !key.trim().eq_ignore_ascii_case("speakers"))
+                    .unwrap_or(true)
+            })
+            .map(str::to_string)
+            .collect(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(format!("could not read diarize.conf: {}", error)),
+    };
+    if let Some(n) = speakers {
+        lines.push(format!("speakers={}", n));
+    }
+    if lines.is_empty() {
+        if let Err(error) = std::fs::remove_file(&conf) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                return Err(format!("could not remove diarize.conf: {}", error));
+            }
+        }
+    } else {
+        std::fs::write(&conf, lines.join("\n") + "\n")
+            .map_err(|error| format!("could not write diarize.conf: {}", error))?;
+    }
+
+    // Removing the outputs is what re-queues the meeting for the watcher;
+    // .diarize-failed is cleared too so a previously failed meeting retries.
+    for name in ["transcript_diarized.md", "summary.md", ".diarize-failed"] {
+        if let Err(error) = std::fs::remove_file(dir.join(name)) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                return Err(format!("could not remove {}: {}", name, error));
+            }
+        }
+    }
+    log_info!(
+        "api_set_diarize_speakers: {:?} for {} — re-diarization queued",
+        speakers,
+        meeting_id
+    );
+    Ok(serde_json::json!({ "status": "queued" }))
+}
+
 #[cfg(test)]
 mod speaker_mapping_tests {
     use super::resolve_speaker_labels;

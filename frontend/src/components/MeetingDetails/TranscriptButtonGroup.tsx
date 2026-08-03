@@ -152,7 +152,7 @@ export function TranscriptButtonGroup({
   );
 
   return (
-    <div className="flex items-center justify-start w-full gap-2">
+    <div className="flex flex-wrap items-center justify-start w-full gap-2">
       <ButtonGroup>
         <Button
           variant="outline"

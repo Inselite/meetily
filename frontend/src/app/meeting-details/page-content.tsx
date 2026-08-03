@@ -19,7 +19,10 @@ import { useMeetingOperations } from '@/hooks/meeting-details/useMeetingOperatio
 import { useConfig } from '@/contexts/ConfigContext';
 
 const DEFAULT_PANEL_SPLIT = 1 / 3;
-const MIN_PANEL_WIDTH = 320;
+// Each panel must at least fit its toolbar row, or the button groups of the
+// two panels visually overlap. Measured with all labels visible (lg+).
+const MIN_TRANSCRIPT_PANEL_WIDTH = 500;
+const MIN_SUMMARY_PANEL_WIDTH = 680;
 const PANEL_SPLIT_STORAGE_KEY = 'meeting_panel_split';
 
 export default function PageContent({
@@ -162,10 +165,13 @@ export default function PageContent({
 
   const clampPanelSplit = (clientX: number) => {
     const bounds = panelContainerRef.current?.getBoundingClientRect();
-    if (!bounds || bounds.width < MIN_PANEL_WIDTH * 2) return panelSplit;
+    if (!bounds || bounds.width < MIN_TRANSCRIPT_PANEL_WIDTH + MIN_SUMMARY_PANEL_WIDTH) {
+      return panelSplit;
+    }
 
-    const minimumSplit = MIN_PANEL_WIDTH / bounds.width;
-    return Math.min(1 - minimumSplit, Math.max(minimumSplit, (clientX - bounds.left) / bounds.width));
+    const minimumSplit = MIN_TRANSCRIPT_PANEL_WIDTH / bounds.width;
+    const maximumSplit = 1 - MIN_SUMMARY_PANEL_WIDTH / bounds.width;
+    return Math.min(maximumSplit, Math.max(minimumSplit, (clientX - bounds.left) / bounds.width));
   };
 
   const handlePanelResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -260,7 +266,7 @@ export default function PageContent({
           meetingId={meeting.id}
           meetingFolderPath={meeting.folder_path}
           onRefetchTranscripts={onRefetchTranscripts}
-          style={{ width: `${panelSplit * 100}%`, minWidth: MIN_PANEL_WIDTH }}
+          style={{ width: `${panelSplit * 100}%`, minWidth: MIN_TRANSCRIPT_PANEL_WIDTH }}
         />
         <div
           role="separator"
@@ -276,7 +282,7 @@ export default function PageContent({
         >
           <div className="absolute inset-y-0 -left-2 -right-2" />
         </div>
-        <div className="flex flex-1 overflow-hidden" style={{ minWidth: MIN_PANEL_WIDTH }}>
+        <div className="flex flex-1 overflow-hidden" style={{ minWidth: MIN_SUMMARY_PANEL_WIDTH }}>
         <SummaryPanel
           meeting={meeting}
           meetingTitle={meetingData.meetingTitle}

@@ -1013,6 +1013,59 @@ pub async fn api_set_diarize_speakers<R: Runtime>(
     Ok(serde_json::json!({ "status": "queued" }))
 }
 
+/// Report the diarization state of a meeting's recording folder: whether the
+/// external sweep has produced a labeled transcript (`done`), and the
+/// speaker count currently pinned in diarize.conf, if any. Used by the UI to
+/// show a check mark on the current count and to poll for re-diarization
+/// completion after api_set_diarize_speakers.
+#[tauri::command]
+pub async fn api_get_diarize_status<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<serde_json::Value, String> {
+    let meeting =
+        MeetingsRepository::get_meeting_metadata(state.db_manager.pool(), &meeting_id)
+            .await
+            .map_err(|e| format!("Database error: {}", e))?
+            .ok_or_else(|| "Meeting not found".to_string())?;
+    let Some(folder) = meeting.folder_path.filter(|f| !f.is_empty()) else {
+        return Ok(serde_json::json!({
+            "done": false,
+            "diarized_at": null,
+            "speakers": null,
+        }));
+    };
+    let dir = std::path::Path::new(&folder);
+    // The mtime lets the UI distinguish "labeled before I asked" from
+    // "re-labeled since": after a Retranscribe the stale transcript_diarized.md
+    // survives until the sweep's fingerprint check wipes and regenerates it.
+    let diarized_at: Option<f64> = std::fs::metadata(dir.join("transcript_diarized.md"))
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs_f64());
+    let done = diarized_at.is_some();
+    let speakers: Option<u32> = std::fs::read_to_string(dir.join("diarize.conf"))
+        .ok()
+        .and_then(|contents| {
+            contents.lines().rev().find_map(|line| {
+                let line = line.split('#').next().unwrap_or("");
+                let (key, value) = line.split_once('=')?;
+                if key.trim().eq_ignore_ascii_case("speakers") {
+                    value.trim().parse().ok()
+                } else {
+                    None
+                }
+            })
+        });
+    Ok(serde_json::json!({
+        "done": done,
+        "diarized_at": diarized_at,
+        "speakers": speakers,
+    }))
+}
+
 #[cfg(test)]
 mod speaker_mapping_tests {
     use super::resolve_speaker_labels;

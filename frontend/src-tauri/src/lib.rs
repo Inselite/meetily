@@ -651,6 +651,7 @@ pub fn run() {
             api::api_save_transcript,
             api::api_rename_speaker,
             api::api_set_diarize_speakers,
+            api::api_get_diarize_status,
             api::open_meeting_folder,
             api::test_backend_connection,
             api::debug_backend_connection,

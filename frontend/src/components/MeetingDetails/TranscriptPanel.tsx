@@ -4,7 +4,8 @@ import { Transcript, TranscriptSegmentData } from '@/types';
 import { TranscriptView } from '@/components/TranscriptView';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
-import { CSSProperties, useMemo } from 'react';
+import { AudioPlayer, AudioPlayerHandle } from './AudioPlayer';
+import { CSSProperties, useCallback, useMemo, useRef } from 'react';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
@@ -67,6 +68,11 @@ export function TranscriptPanel({
     }));
   }, [transcripts, usePagination, segments]);
 
+  const audioPlayerRef = useRef<AudioPlayerHandle>(null);
+  const seekAudio = useCallback((seconds: number) => {
+    audioPlayerRef.current?.seekTo(seconds);
+  }, []);
+
   return (
     <div
       className="hidden h-full min-w-0 shrink-0 flex-col bg-card md:flex"
@@ -83,6 +89,13 @@ export function TranscriptPanel({
           onRefetchTranscripts={onRefetchTranscripts}
         />
       </div>
+
+      {/* Recorded audio playback (hidden while recording or when no file) */}
+      {meetingFolderPath && !isRecording && (
+        <div className="px-4 py-2 border-b border-border">
+          <AudioPlayer key={meetingFolderPath} ref={audioPlayerRef} folderPath={meetingFolderPath} />
+        </div>
+      )}
 
       {/* Transcript content - use virtualized view for better performance */}
       <div className="flex-1 overflow-hidden pb-4">
@@ -101,6 +114,7 @@ export function TranscriptPanel({
           totalCount={totalCount}
           loadedCount={loadedCount}
           onLoadMore={onLoadMore}
+          onSeekAudio={meetingFolderPath && !isRecording ? seekAudio : undefined}
         />
       </div>
 

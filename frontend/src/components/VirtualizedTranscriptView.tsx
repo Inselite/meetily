@@ -38,6 +38,8 @@ export interface VirtualizedTranscriptViewProps {
     totalCount?: number;
     loadedCount?: number;
     onLoadMore?: () => void;
+    /** Seek the meeting audio player to a segment's start time */
+    onSeekAudio?: (seconds: number) => void;
 }
 
 type RenameSpeakerResponse =
@@ -79,6 +81,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence,
     speaker,
     onRenameSpeaker,
+    onSeekAudio,
     isStreaming,
     showConfidence,
 }: {
@@ -88,6 +91,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence?: number;
     speaker?: string;
     onRenameSpeaker?: (oldName: string, newName: string) => void;
+    onSeekAudio?: (seconds: number) => void;
     isStreaming: boolean;
     showConfidence: boolean;
 }) {
@@ -128,7 +132,11 @@ const TranscriptSegment = memo(function TranscriptSegment({
             <div className="flex items-start gap-2">
                 <Tooltip>
                     <TooltipTrigger>
-                        <span className="text-xs text-muted-foreground mt-1 flex-shrink-0 min-w-[50px]">
+                        <span
+                            className={`text-xs text-muted-foreground mt-1 flex-shrink-0 min-w-[50px] ${onSeekAudio ? 'cursor-pointer hover:text-foreground hover:underline' : ''}`}
+                            onClick={onSeekAudio ? () => onSeekAudio(timestamp) : undefined}
+                            title={onSeekAudio ? 'Play the recording from here' : undefined}
+                        >
                             {formatRecordingTime(timestamp)}
                         </span>
                     </TooltipTrigger>
@@ -167,6 +175,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     totalCount = 0,
     loadedCount = 0,
     onLoadMore,
+    onSeekAudio,
 }) => {
     const [speakerRenames, setSpeakerRenames] = useState<Record<string, string>>({});
     const pendingSpeakerRenames = useRef(new Set<string>());
@@ -413,6 +422,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         speaker={segment.speaker ? (speakerRenames[segment.speaker] ?? segment.speaker) : segment.speaker}
                                         onRenameSpeaker={meetingId ? renameSpeaker : undefined}
+                                        onSeekAudio={onSeekAudio}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />
@@ -471,6 +481,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         speaker={segment.speaker ? (speakerRenames[segment.speaker] ?? segment.speaker) : segment.speaker}
                                         onRenameSpeaker={meetingId ? renameSpeaker : undefined}
+                                        onSeekAudio={onSeekAudio}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />

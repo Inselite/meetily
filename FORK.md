@@ -73,6 +73,16 @@ voice into several). The transcript toolbar's **Speakers** menu (Auto-detect,
   the transcript when the sweep's fresh output lands (mtime-gated, so a
   stale pre-Retranscribe transcript never counts as done; 15-min timeout).
 
+## Patch 5: audio playback
+
+A compact player above the stored transcript plays the meeting's own
+recording (`audio.mp4` served over the Tauri asset protocol; the scope now
+covers `~/Meetings` and `~/Movies/meetily-recordings`, and the CSP allows
+`media-src asset:`). Clicking any segment's timestamp jumps the player to
+that moment and starts playing — handy for checking who actually said an
+attributed line. The player hides itself for meetings without a recording
+and while a recording is in progress.
+
 ## Merged: dark mode (upstream PR #575)
 
 The branch also carries upstream PR

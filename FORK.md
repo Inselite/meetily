@@ -105,7 +105,8 @@ bash build-gpu.sh
 The final DMG packaging step needs Finder scripting and fails in headless
 shells; ignore it. The app bundle is at
 `target/release/bundle/macos/meetily.app` (workspace root) — copy it to
-`/Applications`.
+`/Applications`. If that folder is missing, the updater step consumed it:
+extract `meetily.app.tar.gz` from the same directory instead.
 
 ## Caveats
 

@@ -935,7 +935,7 @@ fn remove_if_present(path: &std::path::Path) -> std::io::Result<()> {
 /// meeting. Writes `speakers=N` into the meeting folder's diarize.conf and
 /// removes the diarization outputs so the external sweep re-processes the
 /// meeting with the new count within its next cycle. The existing summary
-/// is kept as summary.md.bak in case regeneration fails (e.g. offline).
+/// is kept as a .bak in case regeneration fails (e.g. offline).
 #[tauri::command]
 pub async fn api_set_diarize_speakers<R: Runtime>(
     _app: AppHandle<R>,
@@ -987,10 +987,13 @@ pub async fn api_set_diarize_speakers<R: Runtime>(
 
     // The summary is only stored on disk, and regenerating it can fail
     // (OpenRouter down, Ollama not running) — keep a backup, don't delete.
-    let summary = dir.join("summary.md");
-    if summary.exists() {
-        std::fs::rename(&summary, dir.join("summary.md.bak"))
-            .map_err(|error| format!("could not back up summary.md: {}", error))?;
+    // summary.html is the current artifact; summary.md the pre-2026-08-06 one.
+    for name in ["summary.html", "summary.md"] {
+        let summary = dir.join(name);
+        if summary.exists() {
+            std::fs::rename(&summary, dir.join(format!("{}.bak", name)))
+                .map_err(|error| format!("could not back up {}: {}", name, error))?;
+        }
     }
     // Clearing stale failure counters lets a previously exhausted meeting
     // retry both steps. transcript_diarized.md goes last: its absence is the

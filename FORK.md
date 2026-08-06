@@ -83,6 +83,16 @@ that moment and starts playing — handy for checking who actually said an
 attributed line. The player hides itself for meetings without a recording
 and while a recording is in progress.
 
+## Patch 6: meeting brief rendered in-app
+
+When the meetily-diarize sweep has written a `summary.html` brief into the
+meeting's folder, the summary panel renders it by default in a sandboxed
+iframe (asset protocol; CSP gains `frame-src asset:`), with an
+"App summary" toggle back to the stock summary UI and a "Meeting brief"
+button to return. `api_get_diarize_status` gained a `brief` flag. The
+brief follows the OS light/dark setting (not the app's in-app theme
+override — the file is static HTML).
+
 ## Merged: dark mode (upstream PR #575)
 
 The branch also carries upstream PR

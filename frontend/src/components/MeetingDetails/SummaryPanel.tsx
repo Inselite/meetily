@@ -9,8 +9,9 @@ import { SummaryGeneratorButtonGroup } from './SummaryGeneratorButtonGroup';
 import { SummaryUpdaterButtonGroup } from './SummaryUpdaterButtonGroup';
 import Analytics from '@/lib/analytics';
 import { useEffect, useRef, useState, RefObject } from 'react';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
-import { Languages, ChevronDown } from 'lucide-react';
+import { Languages, ChevronDown, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { LanguagePickerPopover } from '@/components/LanguagePickerPopover';
@@ -27,6 +28,7 @@ interface SummaryPanelProps {
     id: string;
     title: string;
     created_at: string;
+    folder_path?: string | null;
   };
   meetingTitle: string;
   onTitleChange: (title: string) => void;
@@ -114,6 +116,19 @@ export function SummaryPanel({
     };
   } | null>(null);
   activeMeetingIdRef.current = meeting.id;
+
+  // The diarize sweep's styled HTML brief (summary.html in the recording
+  // folder) — rendered in a sandboxed iframe via the asset protocol.
+  const [briefAvailable, setBriefAvailable] = useState(false);
+  const [showBrief, setShowBrief] = useState(true);
+  useEffect(() => {
+    setBriefAvailable(false);
+    setShowBrief(true);
+    if (!meeting.folder_path) return;
+    invoke<{ brief: boolean }>('api_get_diarize_status', { meetingId: meeting.id })
+      .then((status) => setBriefAvailable(!!status.brief))
+      .catch(() => {});
+  }, [meeting.id, meeting.folder_path]);
   const { addRecent } = useRecentLanguages();
 
   const effectiveLangLabel = summaryLang ? labelForCode(summaryLang) : 'Auto';
@@ -305,9 +320,35 @@ export function SummaryPanel({
             </div>
           </div>
         )}
+        {briefAvailable && !showBrief && (
+          <div className="pt-2">
+            <Button variant="outline" size="sm" onClick={() => setShowBrief(true)}>
+              <FileText />
+              Meeting brief
+            </Button>
+          </div>
+        )}
       </div>
 
-      {isSummaryLoading ? (
+      {briefAvailable && meeting.folder_path && showBrief ? (
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-border">
+            <span className="text-sm text-muted-foreground">
+              Meeting brief — generated automatically after diarization
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setShowBrief(false)}>
+              App summary
+            </Button>
+          </div>
+          <iframe
+            key={meeting.id}
+            sandbox=""
+            src={convertFileSrc(`${meeting.folder_path}/summary.html`)}
+            className="flex-1 w-full border-0"
+            title="Meeting brief"
+          />
+        </div>
+      ) : isSummaryLoading ? (
         <div className="flex flex-col h-full">
           {/* Show button group during generation */}
           <div className="flex items-center justify-center pt-8 pb-4">

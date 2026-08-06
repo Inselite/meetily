@@ -1037,6 +1037,7 @@ pub async fn api_get_diarize_status<R: Runtime>(
             "done": false,
             "diarized_at": null,
             "speakers": null,
+            "brief": false,
         }));
     };
     let dir = std::path::Path::new(&folder);
@@ -1066,6 +1067,8 @@ pub async fn api_get_diarize_status<R: Runtime>(
         "done": done,
         "diarized_at": diarized_at,
         "speakers": speakers,
+        // the sweep's styled HTML brief, renderable in-app via the asset protocol
+        "brief": dir.join("summary.html").exists(),
     }))
 }
 
